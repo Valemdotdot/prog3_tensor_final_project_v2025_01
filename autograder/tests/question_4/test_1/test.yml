@@ -1,0 +1,5 @@
+weight: 0.5
+name: "Question #4.1"
+message: 'Su programa no satisface las condiciones de prueba.'
+show_output: true
+required_files: [tensor.h]

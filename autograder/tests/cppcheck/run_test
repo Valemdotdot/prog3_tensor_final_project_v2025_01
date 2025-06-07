@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+set -eo pipefail
+
+# Configuración con timeout (30 segundos)
+TIMEOUT=30
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PARENT_DIR="$(dirname "$SCRIPT_DIR")"
+LOG_FILE="${SCRIPT_DIR}/clang-tidy.log"
+
+# Limpiar archivo de log previo
+: > "$LOG_FILE"
+
+# Función para escribir en log y mostrar en salida
+log() {
+    echo "$@" | tee -a "$LOG_FILE"
+}
+
+# Verificar dependencias
+REQUIRED_CMD=(clang-tidy)
+for cmd in "${REQUIRED_CMD[@]}"; do
+    if ! command -v "$cmd" &> /dev/null; then
+        log "❌ Error: $cmd no está instalado"
+        exit 1
+    fi
+done
+
+# Archivos a analizar con rutas completas
+declare -A FILES=(
+    ["${SCRIPT_DIR}/cppcheck.cpp"]="cppcheck.cpp"
+    
+)
+
+# Procesamiento con timeout
+EXIT_CODE=0
+for fullpath in "${!FILES[@]}"; do
+    filename="${FILES[$fullpath]}"
+
+    if [[ ! -f "$fullpath" ]]; then
+        log "⚠️ Warning: File not found - $fullpath (has been omit)"
+        continue  # Salta a la siguiente iteración del bucle
+    fi
+
+    log "🔍 Analizando $filename..."
+
+    # Ejecutar con timeout y capturar salida
+    if ! timeout $TIMEOUT clang-tidy "$fullpath" \
+        --quiet \
+        --config='{
+            Checks: "clang-diagnostic-*,clang-analyzer-*",
+            WarningsAsErrors: "*"
+        }' \
+        -- \
+        -std=c++2a \
+        -I"/usr/include/catch2" \
+        -I"$PARENT_DIR" \
+        -I"$SCRIPT_DIR" 2>&1 | tee -a "$LOG_FILE"; then
+
+        # Verificar si fue por timeout
+        if [[ "${PIPESTATUS[0]}" -eq 124 ]]; then
+            log "⏰ Timeout excedido al analizar $filename"
+        fi
+        EXIT_CODE=1
+    fi
+done
+
+# Resultado final
+if [[ "$EXIT_CODE" -eq 0 ]]; then
+    log "✅ Clang-Tidy: Todos los checks pasaron"
+else
+    log "❌ Clang-Tidy: Se encontraron problemas"
+fi
+
+# Comprimir log para Gradescope (opcional)
+gzip -f "$LOG_FILE"
+
+exit $EXIT_CODE
