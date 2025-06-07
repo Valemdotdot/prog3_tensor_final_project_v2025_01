@@ -19,14 +19,14 @@ add_executable(${PROJECT_NAME}
         ${source_files}
         src/utec/agent/PongAgent.cpp
         src/utec/agent/EnvGym.cpp
-        include/algebra/Tensor.h
-        include/nn/layer.h
-        include/nn/dense.h
-        include/nn/activation.h
-        include/nn/loss.h
-        include/nn/neural_network.h
-        include/agent/PongAgent.h
-        include/agent/EnvGym.h
+        include/utec/algebra/Tensor.h
+        include/utec/nn/layer.h
+        include/utec/nn/dense.h
+        include/utec/nn/activation.h
+        include/utec/nn/loss.h
+        include/utec/nn/neural_network.h
+        include/utec/agent/PongAgent.h
+        include/utec/agent/EnvGym.h
         tests/test_tensor.cpp
         tests/test_neural_network.cpp
         tests/test_agent_env.cpp
