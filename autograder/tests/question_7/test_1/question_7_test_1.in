@@ -1,4 +1,0 @@
-#input
-#output
-    Matrix dimensions are compatible for multiplication BUT Batch dimensions do not match
-#endtest
