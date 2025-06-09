@@ -5,165 +5,408 @@
 #ifndef TENSOR_H
 #define TENSOR_H
 
+
 #pragma once
-#include <vector>
+
 #include <array>
+#include <vector>
 #include <stdexcept>
-#include <numeric>
+#include <initializer_list>
 #include <algorithm>
+#include <numeric>
+
 
 namespace utec::algebra {
 
-template <typename T, size_t Rank>
-class Tensor {
-private:
-    std::array<size_t, Rank> _shape;
-    std::vector<T> _data;
-
-    size_t compute_index(const std::array<size_t, Rank>& indices) const {
-        size_t idx = 0;
-        size_t stride = 1;
-        for (size_t i = Rank; i-- > 0;) {
-            idx += indices[i] * stride;
-            stride *= _shape[i];
-        }
-        return idx;
-    }
-
-public:
-    Tensor(const std::array<size_t, Rank>& shape) : _shape(shape) {
-        size_t total = 1;
-        for (auto d : shape) total *= d;
-        _data.resize(total);
-    }
-
-    template <typename... Dims>
-    Tensor(Dims... dims) : _shape{static_cast<size_t>(dims)...} {
-        static_assert(sizeof...(Dims) == Rank, "Número incorrecto de dimensiones");
-        size_t total = 1;
-        ((total *= dims), ...);
-        _data.resize(total);
-    }
-
-    template <typename... Idxs>
-    T& operator()(Idxs... idxs) {
-        static_assert(sizeof...(Idxs) == Rank, "Número incorrecto de índices");
-        std::array<size_t, Rank> indices{static_cast<size_t>(idxs)...};
-        return _data[compute_index(indices)];
-    }
-
-    template <typename... Idxs>
-    const T& operator()(Idxs... idxs) const {
-        static_assert(sizeof...(Idxs) == Rank, "Número incorrecto de índices");
-        std::array<size_t, Rank> indices{static_cast<size_t>(idxs)...};
-        return _data[compute_index(indices)];
-    }
-
-    // Acceso con std::array (interno)
-    T& operator()(const std::array<size_t, Rank>& idxs) {
-        return _data[compute_index(idxs)];
-    }
-
-    const T& operator()(const std::array<size_t, Rank>& idxs) const {
-        return _data[compute_index(idxs)];
-    }
-
-    const std::array<size_t, Rank>& shape() const noexcept {
-        return _shape;
-    }
-
-    void fill(const T& value) noexcept {
-        std::fill(_data.begin(), _data.end(), value);
-    }
-
-    size_t size() const noexcept {
-        return _data.size();
-    }
-
-    Tensor operator+(const Tensor& other) const {
-        if (_shape != other._shape)
-            throw std::invalid_argument("Shapes incompatibles para suma");
-        Tensor result(_shape);
-        for (size_t i = 0; i < _data.size(); ++i)
-            result._data[i] = _data[i] + other._data[i];
-        return result;
-    }
-
-    Tensor operator-(const Tensor& other) const {
-        if (_shape != other._shape)
-            throw std::invalid_argument("Shapes incompatibles para resta");
-        Tensor result(_shape);
-        for (size_t i = 0; i < _data.size(); ++i)
-            result._data[i] = _data[i] - other._data[i];
-        return result;
-    }
-
-    Tensor operator*(const T& scalar) const {
-        Tensor result(_shape);
-        for (size_t i = 0; i < _data.size(); ++i)
-            result._data[i] = _data[i] * scalar;
-        return result;
-    }
-
-    Tensor operator*(const Tensor& other) const {
-        std::array<size_t, Rank> result_shape;
-
-        for (size_t i = 0; i < Rank; ++i) {
-            if (_shape[i] == other._shape[i])
-                result_shape[i] = _shape[i];
-            else if (_shape[i] == 1)
-                result_shape[i] = other._shape[i];
-            else if (other._shape[i] == 1)
-                result_shape[i] = _shape[i];
-            else
-                throw std::invalid_argument("Shapes incompatibles para broadcasting");
-        }
-
-        Tensor result(result_shape);
-        std::array<size_t, Rank> idx{};
-        size_t total = result.size();
-
-        for (size_t flat = 0; flat < total; ++flat) {
-            // reconstruir índice multidimensional
-            size_t rem = flat;
-            for (int i = Rank - 1; i >= 0; --i) {
-                idx[i] = rem % result_shape[i];
-                rem /= result_shape[i];
-            }
-
-            std::array<size_t, Rank> idx_a, idx_b;
-            for (size_t i = 0; i < Rank; ++i) {
-                idx_a[i] = (_shape[i] == 1) ? 0 : idx[i];
-                idx_b[i] = (other._shape[i] == 1) ? 0 : idx[i];
-            }
-
-            result._data[flat] = this->operator()(idx_a) * other(idx_b);
-        }
-
-        return result;
-    }
-
-    void reshape(const std::array<size_t, Rank>& new_shape) {
-        size_t new_total = 1;
-        for (auto d : new_shape) new_total *= d;
-        if (new_total != _data.size())
-            throw std::invalid_argument("Nuevo shape incompatible con cantidad de elementos");
-        _shape = new_shape;
-    }
-
-    Tensor transpose_2d() const {
-        static_assert(Rank == 2, "transpose_2d solo válido para Rank 2");
-        size_t rows = _shape[0];
-        size_t cols = _shape[1];
-        Tensor result(std::array<size_t, 2>{cols, rows});
-        for (size_t i = 0; i < rows; ++i)
-            for (size_t j = 0; j < cols; ++j)
-                result(j, i) = (*this)(i, j);
-        return result;
-    }
-};
-
+inline bool can_broadcast(const std::array<size_t, 2>& a, const std::array<size_t, 2>& b) {
+  for (size_t i = 0; i < a.size(); ++i) {
+    if (a[i] != b[i] && a[i] != 1 && b[i] != 1) return false;
+  }
+  return true;
 }
 
+template<size_t N>
+inline bool can_broadcast(const std::array<size_t, N>& a, const std::array<size_t, N>& b) {
+  for (size_t i = 0; i < a.size(); ++i) {
+    if (a[i] != b[i] && a[i] != 1 && b[i] != 1) return false;
+  }
+  return true;
+}
+
+inline size_t broadcast_index(size_t i, size_t dim_size) {
+  return (dim_size == 1) ? 0 : i;
+}
+
+template<typename T, size_t N>
+class Tensor {
+ private:
+  std::array<size_t, N> dimensions_{};
+  std::vector<T> data_;
+
+  size_t compute_flat_index(const std::array<size_t, N>& indices) const {
+    size_t flat_index = 0;
+    size_t stride = 1;
+    for (size_t i = N; i-- > 0;) {
+      flat_index += indices[i] * stride;
+      stride *= dimensions_[i];
+    }
+    return flat_index;
+  }
+
+ public:
+  template<typename... Dims>
+  Tensor(Dims... dims) {
+    if (sizeof...(Dims) != N) {
+      throw std::runtime_error("Number of dimensions do not match with " + std::to_string(N));
+    }
+    dimensions_ = std::array<size_t, N>{static_cast<size_t>(dims)...};
+    size_t total_size = 1;
+    for (auto d : dimensions_) total_size *= d;
+    data_.resize(total_size);
+  }
+
+  explicit Tensor(const std::array<size_t, N>& dims) {
+    dimensions_ = dims;
+    size_t total_size = 1;
+    for (auto d : dimensions_) total_size *= d;
+    data_.resize(total_size);
+  }
+
+  Tensor() {
+    dimensions_.fill(1);
+    data_.resize(1);
+  }
+
+  const std::array<size_t, N>& shape() const { return dimensions_; }
+
+  template<typename... Indices>
+  T& operator()(Indices... indices) {
+    static_assert(sizeof...(Indices) == N, "Access must use N indices");
+    std::array<size_t, N> idx = {static_cast<size_t>(indices)...};
+    return data_[compute_flat_index(idx)];
+  }
+
+  template<typename... Indices>
+  const T& operator()(Indices... indices) const {
+    static_assert(sizeof...(Indices) == N, "Access must use N indices");
+    std::array<size_t, N> idx = {static_cast<size_t>(indices)...};
+    return data_[compute_flat_index(idx)];
+  }
+
+  typename std::vector<T>::iterator begin() { return data_.begin(); }
+  typename std::vector<T>::iterator end() { return data_.end(); }
+  typename std::vector<T>::const_iterator begin() const { return data_.begin(); }
+  typename std::vector<T>::const_iterator end() const { return data_.end(); }
+  typename std::vector<T>::const_iterator cbegin() const { return data_.cbegin(); }
+  typename std::vector<T>::const_iterator cend() const { return data_.cend(); }
+
+  void fill(const T& value) { std::fill(data_.begin(), data_.end(), value); }
+
+  Tensor<T, N>& operator=(std::initializer_list<T> list) {
+    if (list.size() != data_.size()) throw std::runtime_error("Data size does not match tensor size");
+    std::copy(list.begin(), list.end(), data_.begin());
+    return *this;
+  }
+
+  template<typename... Dims>
+  void reshape(Dims... new_dims) {
+    if (sizeof...(Dims) != N) {
+      throw std::runtime_error("Number of dimensions do not match with " + std::to_string(N));
+    }
+    std::array<size_t, N> new_shape = std::array<size_t, N>{static_cast<size_t>(new_dims)...};
+    size_t new_total = 1;
+    for (auto d : new_shape) new_total *= d;
+
+    if (new_total > data_.size()) {
+      data_.resize(new_total, T{});
+    }
+
+    dimensions_ = new_shape;
+    data_.resize(new_total);
+  }
+
+  Tensor<T, N> operator+(const Tensor<T, N>& other) const {
+    if (!can_broadcast(dimensions_, other.dimensions_))
+      throw std::runtime_error("Shapes do not match and they are not compatible for broadcasting");
+
+    Tensor<T, N> result(dimensions_);
+
+    std::array<size_t, N> indices{};
+    for (size_t i = 0; i < data_.size(); ++i) {
+      size_t temp = i;
+      for (int d = N - 1; d >= 0; --d) {
+        indices[d] = temp % dimensions_[d];
+        temp /= dimensions_[d];
+      }
+
+      std::array<size_t, N> other_indices{};
+      for (size_t d = 0; d < N; ++d) {
+        other_indices[d] = broadcast_index(indices[d], other.dimensions_[d]);
+      }
+
+      result.data_[i] = data_[i] + other.data_[other.compute_flat_index(other_indices)];
+    }
+    return result;
+  }
+
+  Tensor<T, N> operator-(const Tensor<T, N>& other) const {
+    if (!can_broadcast(dimensions_, other.dimensions_))
+      throw std::runtime_error("Shapes do not match and they are not compatible for broadcasting");
+
+    Tensor<T, N> result(dimensions_);
+
+    std::array<size_t, N> indices{};
+    for (size_t i = 0; i < data_.size(); ++i) {
+      size_t temp = i;
+      for (int d = N - 1; d >= 0; --d) {
+        indices[d] = temp % dimensions_[d];
+        temp /= dimensions_[d];
+      }
+
+      std::array<size_t, N> other_indices{};
+      for (size_t d = 0; d < N; ++d) {
+        other_indices[d] = broadcast_index(indices[d], other.dimensions_[d]);
+      }
+
+      result.data_[i] = data_[i] - other.data_[other.compute_flat_index(other_indices)];
+    }
+    return result;
+  }
+
+  Tensor<T, N> operator*(const Tensor<T, N>& other) const {
+    if (!can_broadcast(dimensions_, other.dimensions_))
+      throw std::runtime_error("Shapes do not match and they are not compatible for broadcasting");
+
+    Tensor<T, N> result(dimensions_);
+
+    std::array<size_t, N> indices{};
+    for (size_t i = 0; i < data_.size(); ++i) {
+      size_t temp = i;
+      for (int d = N - 1; d >= 0; --d) {
+        indices[d] = temp % dimensions_[d];
+        temp /= dimensions_[d];
+      }
+
+      std::array<size_t, N> other_indices{};
+      for (size_t d = 0; d < N; ++d) {
+        other_indices[d] = broadcast_index(indices[d], other.dimensions_[d]);
+      }
+
+      result.data_[i] = data_[i] * other.data_[other.compute_flat_index(other_indices)];
+    }
+    return result;
+  }
+
+  Tensor<T, N> operator+(const T& scalar) const {
+    Tensor<T, N> result = *this;
+    for (auto& x : result.data_) x += scalar;
+    return result;
+  }
+
+  Tensor<T, N> operator-(const T& scalar) const {
+    Tensor<T, N> result = *this;
+    for (auto& x : result.data_) x -= scalar;
+    return result;
+  }
+
+  Tensor<T, N> operator*(const T& scalar) const {
+    Tensor<T, N> result = *this;
+    for (auto& x : result.data_) x *= scalar;
+    return result;
+  }
+
+  Tensor<T, N> operator/(const T& scalar) const {
+    Tensor<T, N> result = *this;
+    for (auto& x : result.data_) x /= scalar;
+    return result;
+  }
+
+  friend std::ostream& operator<<(std::ostream& os, const Tensor& tensor) {
+    if constexpr (N == 1) {
+      os << "[";
+      for (size_t i = 0; i < tensor.data_.size(); ++i) {
+        os << tensor.data_[i];
+        if (i + 1 < tensor.data_.size()) os << ", ";
+      }
+      os << "]";
+    } else if constexpr (N == 2) {
+      os << "{\n";
+      for (size_t i = 0; i < tensor.dimensions_[0]; ++i) {
+        for (size_t j = 0; j < tensor.dimensions_[1]; ++j) {
+          os << tensor.data_[i * tensor.dimensions_[1] + j];
+          if (j + 1 < tensor.dimensions_[1]) os << " ";
+        }
+        if (i + 1 < tensor.dimensions_[0]) os << "\n";
+      }
+      os << "\n}";
+    } else if constexpr (N == 3) {
+      os << "{\n";
+      for (size_t i = 0; i < tensor.dimensions_[0]; ++i) {
+        os << "{\n";
+        for (size_t j = 0; j < tensor.dimensions_[1]; ++j) {
+          for (size_t k = 0; k < tensor.dimensions_[2]; ++k) {
+            size_t idx = i * tensor.dimensions_[1] * tensor.dimensions_[2] +
+                        j * tensor.dimensions_[2] + k;
+            os << tensor.data_[idx];
+            if (k + 1 < tensor.dimensions_[2]) os << " ";
+          }
+          if (j + 1 < tensor.dimensions_[1]) os << "\n";
+        }
+        os << "\n}";
+        if (i + 1 < tensor.dimensions_[0]) os << "\n";
+      }
+      os << "\n}";
+    } else {
+      os << "[";
+      for (size_t i = 0; i < tensor.data_.size(); ++i) {
+        os << tensor.data_[i];
+        if (i + 1 < tensor.data_.size()) os << ", ";
+      }
+      os << "]";
+    }
+    return os;
+  }
+};
+
+template<typename T, size_t N>
+Tensor<T, N> operator+(const T& scalar, const Tensor<T, N>& tensor) {
+  return tensor + scalar;
+}
+
+template<typename T, size_t N>
+Tensor<T, N> operator-(const T& scalar, const Tensor<T, N>& tensor) {
+  Tensor<T, N> result = tensor;
+  for (auto& x : result.begin()) x = scalar - x;
+  return result;
+}
+
+template<typename T, size_t N>
+Tensor<T, N> operator*(const T& scalar, const Tensor<T, N>& tensor) {
+  return tensor * scalar;
+}
+
+template<typename T, size_t N>
+Tensor<T, N> transpose_2d(const Tensor<T, N>& input) {
+  if constexpr (N < 2) {
+    throw std::runtime_error("Cannot transpose 1D tensor: need at least 2 dimensions");
+  }
+
+  auto shape = input.shape();
+  std::array<size_t, N> new_shape = shape;
+  std::swap(new_shape[N - 1], new_shape[N - 2]);
+
+  Tensor<T, N> result;
+  if constexpr (N == 2) {
+    result = Tensor<T, N>(new_shape[0], new_shape[1]);
+  } else if constexpr (N == 3) {
+    result = Tensor<T, N>(new_shape[0], new_shape[1], new_shape[2]);
+  } else if constexpr (N == 4) {
+    result = Tensor<T, N>(new_shape[0], new_shape[1], new_shape[2], new_shape[3]);
+  }
+
+  std::array<size_t, N> idx{};
+  std::array<size_t, N> transposed_idx{};
+
+  size_t total_elements = 1;
+  for (auto dim : shape) total_elements *= dim;
+
+  for (size_t i = 0; i < total_elements; ++i) {
+    size_t temp = i;
+    for (int d = N - 1; d >= 0; --d) {
+      idx[d] = temp % shape[d];
+      temp /= shape[d];
+    }
+    transposed_idx = idx;
+    std::swap(transposed_idx[N - 1], transposed_idx[N - 2]);
+
+    if constexpr (N == 2) {
+      result(transposed_idx[0], transposed_idx[1]) = input(idx[0], idx[1]);
+    } else if constexpr (N == 3) {
+      result(transposed_idx[0], transposed_idx[1], transposed_idx[2]) = input(idx[0], idx[1], idx[2]);
+    } else if constexpr (N == 4) {
+      result(transposed_idx[0], transposed_idx[1], transposed_idx[2], transposed_idx[3]) = input(idx[0], idx[1], idx[2], idx[3]);
+    }
+  }
+
+  return result;
+}
+
+template<typename T, size_t N>
+Tensor<T, N> matrix_product(const Tensor<T, N>& A, const Tensor<T, N>& B) {
+  const auto& a_shape = A.shape();
+  const auto& b_shape = B.shape();
+
+  if constexpr (N < 2) {
+    throw std::runtime_error("Matrix dimensions are incompatible for multiplication");
+  }
+
+  if (a_shape[N - 1] != b_shape[N - 2]) {
+    throw std::runtime_error("Matrix dimensions are incompatible for multiplication");
+  }
+
+  for (size_t i = 0; i < N - 2; ++i) {
+    if (a_shape[i] != b_shape[i]) {
+      throw std::runtime_error("Matrix dimensions are compatible for multiplication but batch dimensions do not match");
+    }
+  }
+
+  std::array<size_t, N> result_shape = a_shape;
+  result_shape[N - 1] = b_shape[N - 1];
+  result_shape[N - 2] = a_shape[N - 2];
+
+  Tensor<T, N> result;
+  if constexpr (N == 2) {
+    result = Tensor<T, N>(result_shape[0], result_shape[1]);
+  } else if constexpr (N == 3) {
+    result = Tensor<T, N>(result_shape[0], result_shape[1], result_shape[2]);
+  } else if constexpr (N == 4) {
+    result = Tensor<T, N>(result_shape[0], result_shape[1], result_shape[2], result_shape[3]);
+  }
+
+  std::array<size_t, N> idx{};
+  std::array<size_t, N> a_idx{};
+  std::array<size_t, N> b_idx{};
+
+  size_t total_elements = 1;
+  for (auto dim : result_shape) total_elements *= dim;
+
+  for (size_t i = 0; i < total_elements; ++i) {
+    size_t temp = i;
+    for (int d = N - 1; d >= 0; --d) {
+      idx[d] = temp % result_shape[d];
+      temp /= result_shape[d];
+    }
+
+    T sum = 0;
+    for (size_t k = 0; k < a_shape[N - 1]; ++k) {
+      for (size_t d = 0; d < N; ++d) {
+        a_idx[d] = idx[d];
+        b_idx[d] = idx[d];
+      }
+      a_idx[N - 1] = k;
+      b_idx[N - 2] = k;
+
+      if constexpr (N == 2) {
+        sum += A(a_idx[0], a_idx[1]) * B(b_idx[0], b_idx[1]);
+      } else if constexpr (N == 3) {
+        sum += A(a_idx[0], a_idx[1], a_idx[2]) * B(b_idx[0], b_idx[1], b_idx[2]);
+      } else if constexpr (N == 4) {
+        sum += A(a_idx[0], a_idx[1], a_idx[2], a_idx[3]) * B(b_idx[0], b_idx[1], b_idx[2], b_idx[3]);
+      }
+    }
+
+    if constexpr (N == 2) {
+      result(idx[0], idx[1]) = sum;
+    } else if constexpr (N == 3) {
+      result(idx[0], idx[1], idx[2]) = sum;
+    } else if constexpr (N == 4) {
+      result(idx[0], idx[1], idx[2], idx[3]) = sum;
+    }
+  }
+
+  return result;
+}
+
+}
 
 #endif //TENSOR_H
